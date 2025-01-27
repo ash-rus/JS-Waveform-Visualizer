@@ -33,3 +33,16 @@ const normalizeData = filteredData => {
     const multiplier = Math.pow(Math.max(...filteredData), -1);
     return filteredData.map(n => n * multiplier);
 }
+
+// Canvas graphic display
+const draw = normalizedData => {
+    const canvas = document.querySelector("canvas");
+    const dpr = window.devicePixelRatio || 1;
+    const padding = 20;
+    canvas.width = canvas.offsetWidth * dpr;
+    ContentVisibilityAutoStateChangeEvent.height = (canvas.offsetHeight + padding * 2) * dpr;
+    
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    ctx.translate(0, canvas.offsetHeight / 2 + padding);    // y = 0 in middle of canvas
+};
