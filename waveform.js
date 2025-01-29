@@ -46,3 +46,15 @@ const draw = normalizedData => {
     ctx.scale(dpr, dpr);
     ctx.translate(0, canvas.offsetHeight / 2 + padding);    // y = 0 in middle of canvas
 };
+
+const drawLineSegment = (ctx, x, y, width, isEven) => {
+    ctx.lineWidth = 1;  // line thickness
+    ctz.strokeStyle = "#fff";   // line color
+    ctx.beginPath();
+    y = isEven ? y : -y;
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, y);
+    ctx.arc(x + width / 2, y, width / 2, Math.PI, 0, isEven);
+    ctx.lineTO(x + width, 0);
+    ctx.stroke();
+}
