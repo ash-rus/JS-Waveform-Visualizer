@@ -1,4 +1,2 @@
-# JS Waveform Visualizer
-Javascript waveform visualizer for audio
-# Credits
-Code provided by https://css-tricks.com/making-an-audio-waveform-visualizer-with-vanilla-javascript
+# JS Waveform and Audio Playback
+Javascript waveform visualizer for audio with playback functionality
