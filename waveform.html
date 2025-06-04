@@ -22,6 +22,8 @@
             border: 1px solid #555;
         }
     </style>
+    <link rel="icon" href="favicon.ico" type="image/x-icon" />
+
 </head>
 <body>
 
@@ -29,11 +31,14 @@
         <label for="posInput">Position (x10th seconds): </label>
         <input type="number" id="posInput" value="1200" min="0">
         <button id="drawBtn">Draw Segment</button>
+        <button id="playBtn">Play</button>
+        <button id="stopBtn">Stop</button>
     </div>
+
 
     <canvas></canvas>
 
-    <script src="waveform.js"></script>
+    <script type="module" src="main.js"></script>
 
 </body>
 
