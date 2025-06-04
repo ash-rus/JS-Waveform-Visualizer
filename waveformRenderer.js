@@ -33,24 +33,44 @@ function processAndNormalize(rawData, samplesPerBlock) {
     return data.map(n => ({ min: n.min / globalMax, max: n.max / globalMax }));
 }
 
-export function drawSegment(pos) {
-    const visibleSamples = 3000; // 5 minutes @ 10Hz
+function drawSelectionOverlay(startSample, endSample, viewportPos, cssWidth, height) {
+    if (startSample === null || endSample === null) return;
+
+    const visibleSamples = 3000;
+    const viewStart = viewportPos;
+    const viewEnd = viewportPos + visibleSamples;
+
+    // Clip selection to visible range
+    const clippedStart = Math.max(startSample, viewStart);
+    const clippedEnd = Math.min(endSample, viewEnd);
+
+    if (clippedStart >= clippedEnd) return; // nothing to draw
+
+    const x = ((clippedStart - viewportPos) / visibleSamples) * cssWidth;
+    const width = ((clippedEnd - clippedStart) / visibleSamples) * cssWidth;
+
+    ctx.fillStyle = 'rgba(255, 255, 0, 0.2)';
+    ctx.fillRect(x, -height / 2, width, height);
+}
+
+
+export function drawSegment(pos, playheadPos = null, selectionStart = null, selectionEnd = null) {
+    const visibleSamples = 3000;
 
     if (!normalizedData || normalizedData.length === 0) {
         console.warn("[drawSegment] normalizedData is empty or not loaded");
         return;
     }
 
-    // Clamp pos to valid range
     if (pos < 0) pos = 0;
     if (pos > normalizedData.length - visibleSamples) {
         pos = normalizedData.length - visibleSamples;
-        if (pos < 0) pos = 0;  // handle case where data length < visibleSamples
+        if (pos < 0) pos = 0;
     }
 
     const segment = normalizedData.slice(pos, pos + visibleSamples);
-
     resizeCanvasIfNeeded();
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.save();
     ctx.scale(dpr, dpr);
@@ -71,6 +91,20 @@ export function drawSegment(pos) {
         ctx.moveTo(x, -min * heightScale);
         ctx.lineTo(x, -max * heightScale);
         ctx.stroke();
+    }
+
+    drawSelectionOverlay(selectionStart, selectionEnd, pos, cssWidth, cssHeight);
+
+    if (playheadPos !== null) {
+        const playheadX = getPlayheadX(playheadPos, pos, cssWidth);
+        if (playheadX !== null) {
+            ctx.strokeStyle = 'red';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(playheadX, -heightScale);
+            ctx.lineTo(playheadX, heightScale);
+            ctx.stroke();
+        }
     }
 
     ctx.restore();
@@ -98,3 +132,13 @@ export function drawPlayhead(xPosition) {
     ctx.restore();
 }
 
+export function getPlayheadX(playheadPos, displayPos, canvasWidth) {
+  // playheadPos and displayPos in samples (pos units)
+  // Calculate relative position of playhead inside visible segment
+  const relativePos = playheadPos - displayPos; 
+  const visibleSamples = 3000; // same constant as drawSegment
+
+  if (relativePos < 0 || relativePos > visibleSamples) return null; // outside visible range
+
+  return (relativePos / visibleSamples) * canvasWidth;
+}

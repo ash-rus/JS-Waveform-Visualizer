@@ -1,10 +1,11 @@
-import { drawSegment, drawPlayhead } from './waveformRenderer.js';
+import { drawSegment } from './waveformRenderer.js';
 
 let audioContext, sourceNode, audioBuffer;
 let isPlaying = false;
 let playStartTime = 0;
 let offset = 0;
-let animationFrame;
+
+let playheadPosition = 0;
 
 export function initPlayback(buffer) {
     audioBuffer = buffer;
@@ -12,12 +13,6 @@ export function initPlayback(buffer) {
 }
 
 export function playFrom(startSec) {
-    console.log("[playback.js] playFrom called with startSec:", startSec);
-    if (!isFinite(startSec)) {
-        console.error("[playback.js] Invalid startSec:", startSec);
-        return;
-    }
-    
     if (isPlaying) stopPlayback();
 
     sourceNode = audioContext.createBufferSource();
@@ -41,15 +36,39 @@ export function stopPlayback() {
     cancelAnimationFrame(animationFrame);
 }
 
+export function setPlayheadPosition(seconds) {
+    playheadPosition = seconds;
+}
+
+export function getPlayheadPosition() {
+    return playheadPosition;
+}
+
+let animationFrame;
+
+let playheadUpdateCallback = null;
+
+export function onPlayheadUpdate(callback) {
+    playheadUpdateCallback = callback;
+}
+
 function requestPlayheadUpdate() {
+    if (!isPlaying) return;
+
     const elapsed = audioContext.currentTime - playStartTime;
-    const currentPos = offset + elapsed;
+    const currentPos = offset + elapsed; // in seconds
 
-    console.log("[playback.js] requestPlayheadUpdate currentPos:", currentPos);
+    // Convert to sample index for 10 samples/sec
+    const playheadSample = Math.floor(currentPos * 10);
 
-    const pixelPos = (currentPos * 10) % 3000; // 10 samples/sec
-    drawSegment(Math.floor(currentPos * 10) - 1500); // center playhead
-    drawPlayhead(pixelPos * (960 / 3000)); // match canvas width
+    // Call UI callback if set
+    if (playheadUpdateCallback) {
+        playheadUpdateCallback(playheadSample);
+    }
 
     animationFrame = requestAnimationFrame(requestPlayheadUpdate);
+}
+
+export function getIsPlaying() {
+    return isPlaying;
 }
