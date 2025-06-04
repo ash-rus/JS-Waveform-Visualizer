@@ -1,95 +1,212 @@
 // initializing audio context
-window.AudioContext = window.AudioContext || window.webkitAudioContext; // webkitAudioContext required for Safari
+window.AudioContext = window.AudioContext || window.webkitAudioContext;
 const audioContext = new AudioContext();
 let currentBuffer = null;
 
-const drawAudio = url => {
-    fetch(url)
-        .then(response => response.arrayBuffer())
-        .then(arrayBuffer => audioContext.decodeAudioData(arrayBuffer)) // specialized ArrayBuffer for audio data
-        .then(audioBuffer => draw(normalizeData(filterData(audioBuffer, 1000))));
+let normalizedFullData = null;
+let samplesPerBlock = null;
+
+
+let scrollInterval = null;
+let scrollDirection = 0;
+let scrollSpeed = 10;
+let scrollStartTime = null;
+
+
+// Load entire audio once
+const loadAudio = async (url) => {
+    const response = await fetch(url);
+    const arrayBuffer = await response.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    const rawData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    samplesPerBlock = Math.floor(sampleRate / 10); // 10 samples/sec
+
+    const totalBlocks = Math.floor(rawData.length / samplesPerBlock);
+    const filteredData = [];
+
+    let globalMax = 0;
+
+    for (let i = 0; i < totalBlocks; i++) {
+        const blockStart = i * samplesPerBlock;
+        let min = Infinity, max = -Infinity;
+
+        for (let j = 0; j < samplesPerBlock; j++) {
+            const index = blockStart + j;
+            if (index >= rawData.length) break;
+            const val = rawData[index];
+            if (val < min) min = val;
+            if (val > max) max = val;
+        }
+
+        filteredData.push({ min, max });
+        globalMax = Math.max(globalMax, Math.abs(min), Math.abs(max));
+    }
+
+    // Normalize once, globally
+    normalizedFullData = filteredData.map(n => ({
+        min: n.min / globalMax,
+        max: n.max / globalMax
+    }));
+
+    return audioBuffer;
 };
 
-// downsampling for simplified visual
-const filterData  = (audioBuffer, samples) => {
-    const rawData = audioBuffer.getChannelData(0);  // only use one data channel
-    const blockSize = Math.floor(rawData.length / samples);
+
+const drawAudioSegment = (pos) => {
+    if (!normalizedFullData || !samplesPerBlock) return;
+
+    const samples = 3000; // 5 minutes at 10 samples/sec
+    const start = pos;
+    const end = pos + samples;
+
+    const segment = normalizedFullData.slice(start, end);
+    draw(segment);
+};
+
+
+// Downsampling
+const filterData = (audioBuffer, pos, samples) => {
+    const rawData = audioBuffer.getChannelData(0);
+    const sampleRate = audioBuffer.sampleRate;
+    const samplesPerBlock = Math.floor(sampleRate / 10);
+    const startSample = pos * samplesPerBlock;
+    const endSample = startSample + samples * samplesPerBlock;
+
     const filteredData = [];
 
     for (let i = 0; i < samples; i++) {
-        let blockStart = blockSize * i;
-        let sum = 0;
-        for (let j = 0; j < blockSize; j++) {
-            sum += Math.abs(rawData[blockStart + j])
+        const blockStart = startSample + i * samplesPerBlock;
+        if (blockStart >= rawData.length) break;
+
+        let min = Infinity, max = -Infinity;
+        for (let j = 0; j < samplesPerBlock && (blockStart + j) < rawData.length; j++) {
+            const val = rawData[blockStart + j];
+            if (val < min) min = val;
+            if (val > max) max = val;
         }
-        filteredData.push(sum / blockSize);
+        filteredData.push({ min, max });
     }
+
     return filteredData;
-}
+};
 
-
-// multiply every value by the inverse of the max value 
 const normalizeData = filteredData => {
-    const multiplier = Math.pow(Math.max(...filteredData), -1);
-    return filteredData.map(n => n * multiplier);
-}
+    const maxVal = Math.max(...filteredData.map(n => Math.max(Math.abs(n.min), Math.abs(n.max))));
+    return filteredData.map(n => ({
+        min: n.min / maxVal,
+        max: n.max / maxVal
+    }));
+};
 
-// Canvas graphic display
-const draw = normalizedData => {
+const draw = filteredData => {
     const canvas = document.querySelector("canvas");
     const dpr = window.devicePixelRatio || 1;
-    const padding = 20;
-    canvas.width = canvas.offsetWidth * dpr;
-    canvas.height = (canvas.offsetHeight + padding * 2) * dpr;
-    
+
+    // Only compute once
+    const cssWidth = parseInt(getComputedStyle(canvas).width, 10);
+    const cssHeight = parseInt(getComputedStyle(canvas).height, 10);
+
+    // Set internal canvas size once per draw to match visible size
+    if (canvas.width !== cssWidth * dpr || canvas.height !== cssHeight * dpr) {
+        canvas.width = cssWidth * dpr;
+        canvas.height = cssHeight * dpr;
+    }
+
     const ctx = canvas.getContext("2d");
+    ctx.setTransform(1, 0, 0, 1, 0, 0); // Reset transforms
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.scale(dpr, dpr);
-    ctx.translate(0, canvas.offsetHeight / 2 + padding);    // y = 0 in middle of canvas
+    ctx.translate(0, cssHeight / 2);
 
-    // draw line segments
-    const width = canvas.offsetWidth / normalizedData.length;
-    for (let i = 0; i < normalizedData.length; i++) {
+    const width = cssWidth / filteredData.length;
+    const heightScale = cssHeight / 2;
+
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    const minHeight = 1;
+
+    for (let i = 0; i < filteredData.length; i++) {
         const x = width * i;
-        let height = normalizedData[i] * canvas.offsetHeight - padding;
-        if (height < 0) {
-            height = 0;
-        } else if (height > canvas.offsetHeight / 2) {
-            height = canvas.offsetHeight / 2;
+        let { min, max } = filteredData[i];
+
+        let y1 = -min * heightScale;
+        let y2 = -max * heightScale;
+
+        if (Math.abs(y1 - y2) < minHeight) {
+            y1 = -minHeight / 2;
+            y2 = minHeight / 2;
         }
-        //drawLineSegment(ctx, x, height, width, (i + 1) % 2)
-        drawRectangle(ctx, x, height, width);
-    }
-};
 
-const drawLineSegment = (ctx, x, y, width, isEven) => {
-    ctx.lineWidth = 1;  // line thickness
-    ctx.strokeStyle = "#fff";   // line color
-    ctx.beginPath();
-    y = isEven ? y : -y;
-    ctx.moveTo(x, -y);
-    ctx.lineTo(x, y);
-    ctx.arc(x + width / 2, y, width / 2, Math.PI, 0, isEven);
-    ctx.lineTo(x + width, 0);
-    ctx.stroke();
-};
-
-const drawRectangle = (ctx, x, y, width) => {
-    const height = Math.abs(y); // Ensure height is positive
-
-    // Draw the rectangle in the bottom half
-    const startYBottom = y > 0 ? 0 : -height;
-    ctx.fillStyle = "#fff"; // Fill color for the rectangle
-    ctx.beginPath();
-    ctx.rect(x, startYBottom, width, height); // Draw bottom rectangle
-    ctx.fill();
-
-    // Draw the mirrored rectangle in the top half (if the height is positive)
-    if (y > 0) {
-        const startYTop = -height;
         ctx.beginPath();
-        ctx.rect(x, startYTop, width, height); // Draw top mirrored rectangle
-        ctx.fill();
+        ctx.moveTo(x, y1);
+        ctx.lineTo(x, y2);
+        ctx.stroke();
     }
 };
 
-drawAudio('https://s3-us-west-2.amazonaws.com/s.cdpn.io/3/shoptalk-clip.mp3');
+  
+// On page load: preload audio, hook button
+window.addEventListener("DOMContentLoaded", () => {
+    const posInput = document.getElementById("posInput");
+    const drawBtn = document.getElementById("drawBtn");
+
+    loadAudio("15min.mp3").then(audioBuffer => {
+        currentBuffer = audioBuffer;
+        drawAudioSegment(parseInt(posInput.value));
+    });
+
+    drawBtn.addEventListener("click", () => {
+        const pos = parseInt(posInput.value);
+        if (!isNaN(pos)) {
+            drawAudioSegment(pos);
+        }
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowLeft") {
+            startScrolling(-1);
+        } else if (e.key === "ArrowRight") {
+            startScrolling(1);
+        }
+    });
+
+    document.addEventListener("keyup", (e) => {
+        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+            stopScrolling();
+        }
+    });
+
+});
+
+const startScrolling = (direction) => {
+    if (scrollInterval) return;
+
+    scrollDirection = direction;
+    scrollInterval = setInterval(() => {
+        const posInput = document.getElementById("posInput");
+        let currentPos = parseInt(posInput.value) || 0;
+
+        const maxPos = normalizedFullData.length - 3000; // prevent reading past end
+
+        // Only scroll if within bounds
+        if ((direction === -1 && currentPos <= 0) || (direction === 1 && currentPos >= maxPos)) {
+            stopScrolling();
+            return;
+        }
+
+        currentPos += direction * scrollSpeed;
+
+        // Clamp position
+        currentPos = Math.max(0, Math.min(currentPos, maxPos));
+
+        posInput.value = currentPos;
+        drawAudioSegment(currentPos);
+    }, 1); // smooth update
+};
+
+const stopScrolling = () => {
+    clearInterval(scrollInterval);
+    scrollInterval = null;
+};
